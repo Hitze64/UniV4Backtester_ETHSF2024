@@ -3,20 +3,21 @@
 pragma solidity >=0.8.0;
 
 // import {AutoCompound} from "./hooks/AutoCompound.sol";
+import {Script, console} from "forge-std/Script.sol";
 import {NoopHook} from "./hooks/NoopHook.sol";
 import {PoolEvent, PoolEventType} from "./SUniV4Backtester.sol";
 import {IHooks} from "lib/v4-core/src/interfaces/IHooks.sol";
+import {PoolManager} from "lib/v4-core/src/PoolManager.sol";
 import {Currency} from "lib/v4-core/src/types/Currency.sol";
 import {PoolKey} from "lib/v4-core/src/types/PoolKey.sol";
-import {Script, console} from "forge-std/Script.sol";
-import {PoolManager} from "lib/v4-periphery/lib/v4-core/src/PoolManager.sol";
+import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
 
 contract UniV4Backtester is Script {
     // Returns mint/swap/burn events from UniV3 pool since pool creation until endDate.
     function getPoolEvents(
-        PoolKey calldata poolKey,
+        PoolKey memory poolKey,
         uint128 endDate
-    ) external view returns (PoolEvent[] memory) {
+    ) internal view returns (PoolEvent[] memory) {
         // TODO @gnarlycow
         // This is a placeholder implementation. Replace it with the actual implementation.
         PoolEvent[] memory poolEvents = new PoolEvent[](5);
@@ -29,13 +30,37 @@ contract UniV4Backtester is Script {
     }
 
     function run() public {
-        // TODO @tommyzhao451
-        Currency currency0 = Currency.wrap(0x82aF49447D8a07e3bd95BD0d56f35241523fBab1); // weth on arbitrum
-        Currency currency1 = Currency.wrap(0xaf88d065e77c8cC2239327C5EDb3A432268e5831); // usdc on arbitrum
+        // Pool info
+        // https://sepolia.uniscan.xyz/address/0xC81462Fec8B23319F288047f8A03A57682a35C1A
+        PoolManager poolManager = PoolManager(0xC81462Fec8B23319F288047f8A03A57682a35C1A);
+        Currency currency0 = Currency.wrap(0x0000000000000000000000000000000000000000); // native eth on sepolia.unichain
+        Currency currency1 = Currency.wrap(0x0000000000000000000000000000000000000001); // Currency.wrap(new ERC20("USDC", "USDC", 6, 100)); // deployedUsdc on sepolia.unichain
         uint24 fee = 3000;
         int24 tickSpacing = 60;
-        // NoopHook testHook = new NoopHook(new PoolManager(0x0000000000000000000000000000000000000000));
-        // PoolKey memory poolKey = PoolKey(currency0, currency1, fee, tickSpacing, new NoopHook(new PoolManager(0x0000000000000000000000000000000000000000)));
-        console.log("Hello World!");
+        PoolKey memory poolKey = PoolKey(currency0, currency1, fee, tickSpacing, IHooks(address(0)));
+
+        // Position info
+        // https://sepolia.uniscan.xyz/address/0xB433cB9BcDF4CfCC5cAB7D34f90d1a7deEfD27b9
+        IPositionManager positionManager = IPositionManager(0xB433cB9BcDF4CfCC5cAB7D34f90d1a7deEfD27b9);
+        uint128 positionStartDate = 1620000001;
+        uint128 positionInitialLiquidity = 123456789;
+        int positionInitialTickLower = -198480;
+        int positionInitialTickUpper = -198480;
+
+        // Get and loop through pool events
+        PoolEvent[] memory poolEvents = getPoolEvents(poolKey, 1800000000);
+        bool isPositionInitialized = false;
+        for (uint i = 0; i < poolEvents.length; i++) {
+            PoolEvent memory poolEvent = poolEvents[i];
+            if (!isPositionInitialized && positionStartDate <= poolEvent.unixTimestamp) {
+                // console.log("Initializing position at unixTimestamp=", poolEvents[i].unixTimestamp, ", positionInitialLiquidity=", positionInitialLiquidity, ", positionInitialTickLower=", Strings.toString(positionInitialTickLower), ", positionInitialTickUpper=", Strings.toString(positionInitialTickUpper));
+                isPositionInitialized = true;
+            }
+            if (poolEvent.poolEventType == PoolEventType.MintBurn) {
+                // console.log("Mint/Burn event at unixTimestamp %d: minted/burned %d liquidity tokens, tick range [%d, %d]", poolEvent.unixTimestamp, poolEvent.liquidityDelta, poolEvent.tickLower, poolEvent.tickUpper);
+            } else if (poolEvent.poolEventType == PoolEventType.Swap) {
+                // console.log("Swap event at unixTimestamp %d: swapped %d amount0In, %d amount1In, %d amount0Out, %d amount1Out", poolEvent.unixTimestamp, poolEvent.amount0In, poolEvent.amount1In, poolEvent.amount0Out, poolEvent.amount1Out);
+            }
+        }
     }
 }
