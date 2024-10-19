@@ -1,0 +1,11 @@
+[profile.default]
+src = "src"
+out = "artifacts"
+libs = [
+    "lib",
+    "node_modules",
+]
+
+
+solc_version = '0.8.26'
+evm_version = 'cancun'
