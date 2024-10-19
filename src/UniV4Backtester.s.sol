@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: MIT
-// $ forge script src/UniV4Backtester.s.sol
+// $ forge script UniV4Backtester --fork-url https://unichain-sepolia.g.alchemy.com/v2/0123456789ABCDEFGHIJKLMNOPQRSTUV --fork-block-number 2523275
 pragma solidity >=0.8.0;
+
+import "lib/openzeppelin-contracts/contracts/utils/Strings.sol";
 
 // import {AutoCompound} from "./hooks/AutoCompound.sol";
 import {Script, console} from "forge-std/Script.sol";
 import {NoopHook} from "./hooks/NoopHook.sol";
 import {PoolEvent, PoolEventType} from "./SUniV4Backtester.sol";
-import {IHooks} from "lib/v4-core/src/interfaces/IHooks.sol";
-import {PoolManager} from "lib/v4-core/src/PoolManager.sol";
-import {Currency} from "lib/v4-core/src/types/Currency.sol";
-import {PoolKey} from "lib/v4-core/src/types/PoolKey.sol";
+import {Token1} from "./Token1.sol";
+import {ERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {IHooks} from "lib/v4-periphery/lib/v4-core/src/interfaces/IHooks.sol";
+import {Hooks} from "lib/v4-periphery/lib/v4-core/src/libraries/Hooks.sol";
+import {Currency} from "lib/v4-periphery/lib/v4-core/src/types/Currency.sol";
+import {PoolKey} from "lib/v4-periphery/lib/v4-core/src/types/PoolKey.sol";
 import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
+import {PoolManager} from "lib/v4-periphery/lib/v4-core/src/PoolManager.sol";
 
 contract UniV4Backtester is Script {
     // Returns mint/swap/burn events from UniV3 pool since pool creation until endDate.
@@ -30,37 +35,53 @@ contract UniV4Backtester is Script {
     }
 
     function run() public {
+        // Deploy token1
+        Token1 token1 = new Token1();
+        console.log("Deployed Token1@", address(token1));
+        console.log(token1.balanceOf(address(this)));
+
+        // Pool Manager
+        PoolManager poolManager = PoolManager(0xC81462Fec8B23319F288047f8A03A57682a35C1A);
+
+        // Hook info
+        console.log("before deploying noop hook");
+        uint160 flags = 0;
+        bytes memory constructorArgs = abi.encode(0xC81462Fec8B23319F288047f8A03A57682a35C1A);
+        NoopHook noopHook = new NoopHook(poolManager);
+        (address hookAddress, bytes32 salt) = HookMiner.find(CREATE2_DEPLOYER, flags, type(PointsHook).creationCode, constructorArgs);
+        console.log("Deployed noopHook@", address(noopHook));
+
         // Pool info
         // https://sepolia.uniscan.xyz/address/0xC81462Fec8B23319F288047f8A03A57682a35C1A
-        PoolManager poolManager = PoolManager(0xC81462Fec8B23319F288047f8A03A57682a35C1A);
         Currency currency0 = Currency.wrap(0x0000000000000000000000000000000000000000); // native eth on sepolia.unichain
-        Currency currency1 = Currency.wrap(0x0000000000000000000000000000000000000001); // Currency.wrap(new ERC20("USDC", "USDC", 6, 100)); // deployedUsdc on sepolia.unichain
+        Currency currency1 = Currency.wrap(address(token1)); // deployed usdc on sepolia.unichain
         uint24 fee = 3000;
         int24 tickSpacing = 60;
-        PoolKey memory poolKey = PoolKey(currency0, currency1, fee, tickSpacing, IHooks(address(0)));
+        PoolKey memory poolKey = PoolKey(currency0, currency1, fee, tickSpacing, IHooks(address(noopHook)));
+        poolManager.initialize(poolKey, 79228162514264337593543950336);
 
-        // Position info
-        // https://sepolia.uniscan.xyz/address/0xB433cB9BcDF4CfCC5cAB7D34f90d1a7deEfD27b9
-        IPositionManager positionManager = IPositionManager(0xB433cB9BcDF4CfCC5cAB7D34f90d1a7deEfD27b9);
-        uint128 positionStartDate = 1620000001;
-        uint128 positionInitialLiquidity = 123456789;
-        int positionInitialTickLower = -198480;
-        int positionInitialTickUpper = -198480;
+        // // Position info
+        // // https://sepolia.uniscan.xyz/address/0xB433cB9BcDF4CfCC5cAB7D34f90d1a7deEfD27b9
+        // IPositionManager positionManager = IPositionManager(0xB433cB9BcDF4CfCC5cAB7D34f90d1a7deEfD27b9);
+        // uint128 positionStartDate = 1620000001;
+        // uint128 positionInitialLiquidity = 123456789;
+        // int positionInitialTickLower = -198480;
+        // int positionInitialTickUpper = -198480;
 
-        // Get and loop through pool events
-        PoolEvent[] memory poolEvents = getPoolEvents(poolKey, 1800000000);
-        bool isPositionInitialized = false;
-        for (uint i = 0; i < poolEvents.length; i++) {
-            PoolEvent memory poolEvent = poolEvents[i];
-            if (!isPositionInitialized && positionStartDate <= poolEvent.unixTimestamp) {
-                // console.log("Initializing position at unixTimestamp=", poolEvents[i].unixTimestamp, ", positionInitialLiquidity=", positionInitialLiquidity, ", positionInitialTickLower=", Strings.toString(positionInitialTickLower), ", positionInitialTickUpper=", Strings.toString(positionInitialTickUpper));
-                isPositionInitialized = true;
-            }
-            if (poolEvent.poolEventType == PoolEventType.MintBurn) {
-                // console.log("Mint/Burn event at unixTimestamp %d: minted/burned %d liquidity tokens, tick range [%d, %d]", poolEvent.unixTimestamp, poolEvent.liquidityDelta, poolEvent.tickLower, poolEvent.tickUpper);
-            } else if (poolEvent.poolEventType == PoolEventType.Swap) {
-                // console.log("Swap event at unixTimestamp %d: swapped %d amount0In, %d amount1In, %d amount0Out, %d amount1Out", poolEvent.unixTimestamp, poolEvent.amount0In, poolEvent.amount1In, poolEvent.amount0Out, poolEvent.amount1Out);
-            }
-        }
+        // // Get and loop through pool events
+        // PoolEvent[] memory poolEvents = getPoolEvents(poolKey, 1800000000);
+        // bool isPositionInitialized = false;
+        // for (uint i = 0; i < poolEvents.length; i++) {
+        //     PoolEvent memory poolEvent = poolEvents[i];
+        //     if (!isPositionInitialized && positionStartDate <= poolEvent.unixTimestamp) {
+        //         console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat("Initializing position at unixTimestamp=", Strings.toString(poolEvents[i].unixTimestamp), ", positionInitialLiquidity=", Strings.toString(positionInitialLiquidity), ", positionInitialTickLower=", Strings.toStringSigned(positionInitialTickLower), ", positionInitialTickUpper=", Strings.toStringSigned(positionInitialTickUpper)))))))));
+        //         isPositionInitialized = true;
+        //     }
+        //     if (poolEvent.poolEventType == PoolEventType.MintBurn) {
+        //         console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat((poolEvent.amount >= 0 ? "Mint" : "Burn"), " at unixTimestamp=", Strings.toString(poolEvents[i].unixTimestamp), ", amount=", Strings.toStringSigned(poolEvent.amount), ", positionInitialTickLower=", Strings.toStringSigned(positionInitialTickLower), ", positionInitialTickUpper=", Strings.toStringSigned(positionInitialTickUpper)))))))));
+        //     } else if (poolEvent.poolEventType == PoolEventType.Swap) {
+        //         console.log(string.concat(string.concat(string.concat(string.concat(string.concat("Swap at unixTimestamp=", Strings.toString(poolEvents[i].unixTimestamp), ", amount0=", Strings.toStringSigned(poolEvent.amount0), ", amount1=", Strings.toStringSigned(poolEvent.amount1)))))));
+        //     }
+        // }
     }
 }
