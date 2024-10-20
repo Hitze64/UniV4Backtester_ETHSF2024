@@ -115,7 +115,7 @@ contract UniV4Backtester is Test {
         uint128 positionStartDate = 1620244617;
         uint128 positionEndDate = FAR_FUTURE_TIMESTAMP;
         uint256 positionInitialLiquidity = 1234567890;
-        int positionInitialTickLower = 253320;
+        int positionInitialTickLower = 251040;
         int positionInitialTickUpper = 264600;
         console.log("After getting position manager, address(poolManager).code.length=", address(positionManager).code.length);
 
@@ -141,7 +141,7 @@ contract UniV4Backtester is Test {
         PoolEvent[] memory poolEvents = getPoolEvents(FAR_FUTURE_TIMESTAMP);
         console.log("After getPoolEvents, poolEvents.length=", poolEvents.length);
         bool isPositionInitialized = false;
-        for (uint i = 0; i < 80; i++) {
+        for (uint i = 0; i < 300; i++) {
             PoolEvent memory poolEvent = poolEvents[i];
             if (poolEvent.unixTimestamp > positionEndDate) {
                 break;
@@ -215,6 +215,19 @@ contract UniV4Backtester is Test {
         if (isPositionInitialized) {
             uint256 token0Before = token0.balanceOf(whaleAddress);
             uint256 token1Before = token1.balanceOf(whaleAddress);
+
+            // https://docs.uniswap.org/contracts/v4/quickstart/manage-liquidity/collect
+            {
+                bytes memory actions = abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR));
+                bytes[] memory params = new bytes[](2);
+                params[0] = abi.encode(positionTokenId, 0, 0, 0, "");
+                params[1] = abi.encode(currency0, currency1, whaleAddress);
+                vm.prank(whaleAddress);
+                positionManager.modifyLiquidities(abi.encode(actions, params), uint256(FAR_FUTURE_TIMESTAMP));
+            }
+            uint256 token0Collected = token0.balanceOf(whaleAddress) - token0Before;
+            uint256 token1Collected = token1.balanceOf(whaleAddress) - token1Before;
+
             // https://docs.uniswap.org/contracts/v4/quickstart/manage-liquidity/decrease-liquidity
             {
                 bytes memory actions = abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR));
@@ -225,6 +238,7 @@ contract UniV4Backtester is Test {
                 vm.prank(whaleAddress);
                 positionManager.modifyLiquidities(abi.encode(actions, params), uint256(FAR_FUTURE_TIMESTAMP));
             }
+
             // Burn position to verify currency settled.
             // https://docs.uniswap.org/contracts/v4/quickstart/manage-liquidity/burn-liquidity
             {
@@ -234,9 +248,9 @@ contract UniV4Backtester is Test {
                 vm.prank(whaleAddress);
                 positionManager.modifyLiquidities(abi.encode(actions, params), uint256(FAR_FUTURE_TIMESTAMP));
             }
-            uint256 positionToken0Out = token0.balanceOf(whaleAddress) - token0Before;
-            uint256 positionToken1Out = token1.balanceOf(whaleAddress) - token1Before;
-            console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat("Position burned, token0In=", Strings.toString(positionToken0In), ", token1In=", Strings.toString(positionToken1In), ", positionToken0Out=", Strings.toString(positionToken0Out), ", positionToken1Out=", Strings.toString(positionToken1Out))))))));
+            uint256 token0Out = token0.balanceOf(whaleAddress) - token0Before;
+            uint256 token1Out = token1.balanceOf(whaleAddress) - token1Before;
+            console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat("Position burned, token0In=", Strings.toString(positionToken0In), ", token1In=", Strings.toString(positionToken1In), ", token0Collected=", Strings.toString(token0Collected), ", token1Collected=", Strings.toString(token1Collected), ", token0Out=", Strings.toString(token0Out), ", token1Out=", Strings.toString(token1Out))))))))))));
         } else {
             console.log("No position initialized");
         }
