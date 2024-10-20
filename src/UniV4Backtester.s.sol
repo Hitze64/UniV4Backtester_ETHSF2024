@@ -6,8 +6,7 @@ import "./ICreate2Deployer.sol";
 import "lib/openzeppelin-contracts/contracts/utils/Strings.sol";
 
 // import {AutoCompound} from "./hooks/AutoCompound.sol";
-import {Script, console} from "forge-std/Script.sol";
-import {Test} from "forge-std/Test.sol";
+import {Test, console} from "forge-std/Test.sol";
 import {NoopHook} from "./hooks/NoopHook.sol";
 import {PoolEvent, PoolEventType} from "./SUniV4Backtester.sol";
 import {Token1} from "./Token1.sol";
