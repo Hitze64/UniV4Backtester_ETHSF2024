@@ -29,7 +29,6 @@ contract UniV4Backtester is Test {
 
     mapping(string => bool) private isTicksExist;
     mapping(string => uint) private ticksToTokenId;
-    uint nextTokenId = 0;
 
     // Returns mint/swap/burn events from UniV3 pool since pool creation until endDate.
     function getPoolEvents(
@@ -110,9 +109,12 @@ contract UniV4Backtester is Test {
 
         // Position info
         PositionManager positionManager = PositionManager(positionManagerAddress);
-        nextTokenId = positionManager.nextTokenId();
-        uint128 positionStartDate = FAR_FUTURE_TIMESTAMP;
-        uint128 positionInitialLiquidity = 1234567890;
+        uint256 positionTokenId = 0;
+        uint256 positionToken0In = 0;
+        uint256 positionToken1In = 0;
+        uint128 positionStartDate = 1620244617;
+        uint128 positionEndDate = FAR_FUTURE_TIMESTAMP;
+        uint256 positionInitialLiquidity = 1234567890;
         int positionInitialTickLower = 253320;
         int positionInitialTickUpper = 264600;
         console.log("After getting position manager, address(poolManager).code.length=", address(positionManager).code.length);
@@ -130,18 +132,35 @@ contract UniV4Backtester is Test {
         (uint160 amount0, uint48 expiration0, uint48 nonce0) = permit2.allowance(whaleAddress, address(token0), address(positionManager));
         (uint160 amount1, uint48 expiration1, uint48 nonce1) = permit2.allowance(whaleAddress, address(token1), address(positionManager));
         console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat("After approving whale, permit2's allowance amount0=", Strings.toString(amount0), ", expiration0=", Strings.toString(expiration0), ", nonce0=", Strings.toString(nonce0), ", amount1=", Strings.toString(amount1), ", expiration1=", Strings.toString(expiration1), ", nonce1=", Strings.toString(nonce1))))))))))));
+        vm.prank(whaleAddress);
         ERC20(token0).approve(address(swapRouter), type(uint256).max);
+        vm.prank(whaleAddress);
         ERC20(token1).approve(address(swapRouter), type(uint256).max);
 
         // Get and loop through pool events
         PoolEvent[] memory poolEvents = getPoolEvents(FAR_FUTURE_TIMESTAMP);
+        console.log("After getPoolEvents, poolEvents.length=", poolEvents.length);
         bool isPositionInitialized = false;
-        console.log("tommyzhao num events", poolEvents.length);
-        for (uint i = 0; i < 50; i++) {
+        for (uint i = 0; i < 80; i++) {
             PoolEvent memory poolEvent = poolEvents[i];
+            if (poolEvent.unixTimestamp > positionEndDate) {
+                break;
+            }
             if (!isPositionInitialized && positionStartDate <= poolEvent.unixTimestamp) {
-                // console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat("Initializing position at unixTimestamp=", Strings.toString(poolEvents[i].unixTimestamp), ", positionInitialLiquidity=", Strings.toString(positionInitialLiquidity), ", tickLower=", Strings.toStringSigned(positionInitialTickLower), ", positionInitialTickUpper=", Strings.toStringSigned(positionInitialTickUpper)))))))));
+                positionTokenId = positionManager.nextTokenId();
+                console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat("Initializing positionId=", Strings.toString(positionTokenId), " at unixTimestamp=", Strings.toString(poolEvents[i].unixTimestamp), ", positionInitialLiquidity=", Strings.toString(positionInitialLiquidity), ", tickLower=", Strings.toStringSigned(positionInitialTickLower), ", positionInitialTickUpper=", Strings.toStringSigned(positionInitialTickUpper)))))))))));
                 isPositionInitialized = true;
+                uint256 token0Before = token0.balanceOf(whaleAddress);
+                uint256 token1Before = token1.balanceOf(whaleAddress);
+                // https://docs.uniswap.org/contracts/v4/quickstart/manage-liquidity/mint-position
+                bytes memory actions = abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR));
+                bytes[] memory params = new bytes[](2);
+                params[0] = abi.encode(poolKey, int24(positionInitialTickLower), int24(positionInitialTickUpper), uint256(positionInitialLiquidity), MAX_UINT128, MAX_UINT128, whaleAddress, "");
+                params[1] = abi.encode(currency0, currency1);
+                vm.prank(whaleAddress);
+                positionManager.modifyLiquidities(abi.encode(actions, params), uint256(FAR_FUTURE_TIMESTAMP));
+                positionToken0In = token0Before - token0.balanceOf(whaleAddress);
+                positionToken1In = token1Before - token1.balanceOf(whaleAddress);
             }
             if (poolEvent.eventType == 0) {
                 console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat((poolEvent.amount >= 0 ? "Mint" : "Burn"), " at unixTimestamp=", Strings.toString(poolEvents[i].unixTimestamp), ", amount=", Strings.toStringSigned(poolEvent.amount), ", tickLower=", Strings.toStringSigned(poolEvent.tickLower), ", tickUpper=", Strings.toStringSigned(poolEvent.tickUpper)))))))));
@@ -149,8 +168,8 @@ contract UniV4Backtester is Test {
                 uint256 tokenId = ticksToTokenId[ticks];
                 // If ticks doesn't exist, then it has to be a mint operation
                 if (!isTicksExist[ticks]) {
+                    tokenId = positionManager.nextTokenId();
                     isTicksExist[ticks] = true;
-                    tokenId = nextTokenId++;
                     ticksToTokenId[ticks] = tokenId;
                     // https://docs.uniswap.org/contracts/v4/quickstart/manage-liquidity/mint-position
                     bytes memory actions = abi.encodePacked(uint8(Actions.MINT_POSITION), uint8(Actions.SETTLE_PAIR));
@@ -177,13 +196,6 @@ contract UniV4Backtester is Test {
                         params[1] = abi.encode(currency0, currency1, whaleAddress);
                         vm.prank(whaleAddress);
                         positionManager.modifyLiquidities(abi.encode(actions, params), uint256(FAR_FUTURE_TIMESTAMP));
-                        // bytes memory actions = abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.CLEAR_OR_TAKE), uint8(Actions.CLEAR_OR_TAKE));
-                        // bytes[] memory params = new bytes[](3);
-                        // params[0] = abi.encode(tokenId, uint256(-poolEvent.amount), 0, 0, "");
-                        // params[1] = abi.encode(currency0, MAX_UINT128);
-                        // params[2] = abi.encode(currency1, MAX_UINT128);
-                        // vm.prank(whaleAddress);
-                        // positionManager.modifyLiquidities(abi.encode(actions, params), uint256(FAR_FUTURE_TIMESTAMP));
                     }
                 }
             } else {
@@ -192,16 +204,41 @@ contract UniV4Backtester is Test {
                 bool zeroForOne = poolEvent.amount0 > 0;
                 IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
                     zeroForOne: zeroForOne,
-                    amountSpecified: int256(zeroForOne ? poolEvent.amount0 : poolEvent.amount1),
+                    amountSpecified: -int256(zeroForOne ? poolEvent.amount0 : poolEvent.amount1),
                     sqrtPriceLimitX96: zeroForOne ? MIN_PRICE_LIMIT : MAX_PRICE_LIMIT // unlimited impact
                 });
-                // console.log("swap, amountSpecified=", params.amountSpecified);
-                // console.log(zeroForOne);
                 PoolSwapTest.TestSettings memory testSettings = PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
-                // vm.prank(whaleAddress);
-                // swapRouter.swap(poolKey, params, testSettings, "");
+                vm.prank(whaleAddress);
+                swapRouter.swap(poolKey, params, testSettings, "");
             }
-            // console.log(poolManager.get)
+        }
+        if (isPositionInitialized) {
+            uint256 token0Before = token0.balanceOf(whaleAddress);
+            uint256 token1Before = token1.balanceOf(whaleAddress);
+            // https://docs.uniswap.org/contracts/v4/quickstart/manage-liquidity/decrease-liquidity
+            {
+                bytes memory actions = abi.encodePacked(uint8(Actions.DECREASE_LIQUIDITY), uint8(Actions.TAKE_PAIR));
+                bytes[] memory params = new bytes[](2);
+                params[0] = abi.encode(positionTokenId, uint256(positionManager.getPositionLiquidity(positionTokenId)), 0, 0, "");
+                params[1] = abi.encode(currency0, currency1, whaleAddress);
+                params[1] = abi.encode(currency0, currency1, whaleAddress);
+                vm.prank(whaleAddress);
+                positionManager.modifyLiquidities(abi.encode(actions, params), uint256(FAR_FUTURE_TIMESTAMP));
+            }
+            // Burn position to verify currency settled.
+            // https://docs.uniswap.org/contracts/v4/quickstart/manage-liquidity/burn-liquidity
+            {
+                bytes memory actions = abi.encodePacked(uint8(Actions.BURN_POSITION));
+                bytes[] memory params = new bytes[](1);
+                params[0] = abi.encode(positionTokenId, uint128(0), uint128(0), "");
+                vm.prank(whaleAddress);
+                positionManager.modifyLiquidities(abi.encode(actions, params), uint256(FAR_FUTURE_TIMESTAMP));
+            }
+            uint256 positionToken0Out = token0.balanceOf(whaleAddress) - token0Before;
+            uint256 positionToken1Out = token1.balanceOf(whaleAddress) - token1Before;
+            console.log(string.concat(string.concat(string.concat(string.concat(string.concat(string.concat("Position burned, token0In=", Strings.toString(positionToken0In), ", token1In=", Strings.toString(positionToken1In), ", positionToken0Out=", Strings.toString(positionToken0Out), ", positionToken1Out=", Strings.toString(positionToken1Out))))))));
+        } else {
+            console.log("No position initialized");
         }
     }
 }
