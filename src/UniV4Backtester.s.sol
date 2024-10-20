@@ -35,15 +35,18 @@ contract UniV4Backtester is Test {
         PoolKey memory poolKey,
         uint128 endDate
     ) internal view returns (PoolEvent[] memory) {
-        // TODO @gnarlycow
-        // This is a placeholder implementation. Replace it with the actual implementation.
-        PoolEvent[] memory poolEvents = new PoolEvent[](5);
-        poolEvents[0] = PoolEvent(PoolEventType.MintBurn, 1620158974, 34399999543676, 253320, 264600, 0, 0);
-        poolEvents[1] = PoolEvent(PoolEventType.MintBurn, 1620159289, 2154941425, 255540, 262440, 0, 0);
-        poolEvents[2] = PoolEvent(PoolEventType.Swap, 1620159740, 0, 0, 0, -62219, 10000000000000000);
-        poolEvents[4] = PoolEvent(PoolEventType.MintBurn, 1620160327, 119255067035, 253320, 260700, 0, 0);
-        poolEvents[3] = PoolEvent(PoolEventType.Swap, 1620161092, 0, 0, 0, -62129, 10000000000000000);
-        return poolEvents;
+        string memory json = vm.readFile("../data/univ3-wbtc-weth-0.3-events.json");
+        bytes memory data = vm.parseJson(json);
+        PoolEvents memory poolEvents = abi.decode(data, (PoolEvents));
+        uint256 length = 0;
+        while (length < poolEvents.events.length && poolEvents.events[length].unixTimestamp <= endDate) {
+            length++;
+        }
+        PoolEvent[] memory events = new PoolEvent[](length);
+        for (uint256 i = 0; i < length; i++) {
+            events[i] = poolEvents.events[i];
+        }
+        return events;
     }
 
     function run() public {
