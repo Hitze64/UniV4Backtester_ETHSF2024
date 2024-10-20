@@ -2,7 +2,8 @@ import {
   IUniswapV3PoolEvents__factory,
 } from '@aperture_finance/uniswap-v3-automation-sdk';
 import { ExtractAbiEventNames } from 'abitype';
-import { appendFileSync } from 'fs';
+import converter from 'convert-csv-to-json';
+import { appendFileSync, writeFileSync } from 'fs';
 import {
   Address,
   Log,
@@ -153,4 +154,30 @@ async function fetchUniV3PoolEvents() {
   }
 }
 
-fetchUniV3PoolEvents();
+/*
+    int amount;
+    int amount0;
+    int amount1;
+    uint8 eventType; // 0: MintBurn, 1: Swap
+    int tickLower;
+    int tickUpper;
+    uint128 unixTimestamp;
+*/
+
+function convertCsvToJson() {
+  const rawEvents = converter.fieldDelimiter(',').getJsonFromCsv('../data/univ3-wbtc-weth-0.3-events.csv');
+  const processedEvents = rawEvents.map((event) => {
+    return {
+      amount: Number(event.amount),
+      amount0: Number(event.amount0),
+      amount1: Number(event.amount1),
+      eventType: event.eventName === 'Swap' ? 1 : 0,
+      tickLower: Number(event.tickLower),
+      tickUpper: Number(event.tickUpper),
+      unixTimestamp: Number(event.unixTimestamp),
+    };
+  });
+  writeFileSync('../data/univ3-wbtc-weth-0.3-events.json', JSON.stringify(processedEvents));
+}
+
+convertCsvToJson();
