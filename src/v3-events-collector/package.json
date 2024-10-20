@@ -1,0 +1,25 @@
+{
+  "name": "univ3_pool_event_collector",
+  "version": "0.0.1",
+  "description": "UniV3 pool event collector",
+  "author": "Aperture Finance",
+  "license": "MIT",
+  "engines": {
+    "node": "^20"
+  },
+  "main": "dist/app.js",
+  "scripts": {
+    "build": "tsc",
+    "prestart": "yarn build",
+    "start": "node ."
+  },
+  "dependencies": {
+    "@aperture_finance/uniswap-v3-automation-sdk": "3.11.2",
+    "viem": "^2.21.29"
+  },
+  "devDependencies": {
+    "@types/node": "^20.9.1",
+    "prettier": "3.3.3",
+    "typescript": "^5.6.3"
+  }
+}
